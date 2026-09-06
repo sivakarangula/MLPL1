@@ -279,7 +279,7 @@
       document.getElementById('loginOverlay').style.display = "none";
       document.getElementById('mainApp').style.display = "flex";
       
-      // Restore in-progress entries from previous session
+      // Auto-restore saved entries table from local browser storage
       loadCachedEntries();
       initAppDB();
     } else {
