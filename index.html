@@ -80,28 +80,7 @@
 </head>
 <body>
 
-<!-- Authentication Overlay -->
-<div id="loginOverlay" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 9999;">
-  <div class="card" style="width: 100%; max-width: 400px; text-align: left; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
-    <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 4px; color: var(--text); text-align: center;">Sign In</h2>
-    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; text-align: center;">MATHRUSRI LOGISTICS PVT LTD</div>
-    
-    <form onsubmit="handleLoginAuth(event)">
-      <div class="input-group">
-        <label for="loginUserInput">Username</label>
-        <input type="text" id="loginUserInput" placeholder="Enter Username" required autofocus />
-      </div>
-      <div class="input-group" style="margin-bottom: 14px;">
-        <label for="loginPassInput">Password</label>
-        <input type="password" id="loginPassInput" placeholder="Enter Password" required />
-      </div>
-      <div id="loginAuthError" style="color: var(--danger); font-size: 0.85rem; font-weight: 600; margin-bottom: 12px; display: none; text-align: center;">Invalid Username or Password!</div>
-      <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In &rarr;</button>
-    </form>
-  </div>
-</div>
-
-<div class="app-container" id="mainApp" style="display: none;">
+<div class="app-container" id="mainApp">
   <div class="card">
     <header>
       <div>
@@ -268,24 +247,11 @@
   let editingIndex = -1;
   let selectedMatchIndex = -1;
 
-  function handleLoginAuth(e) {
-    e.preventDefault();
-    const userVal = document.getElementById('loginUserInput').value.trim();
-    const passVal = document.getElementById('loginPassInput').value.trim();
-    const errEl = document.getElementById('loginAuthError');
-
-    if (userVal === "SIVAKARANGULA" && passVal === "207456") {
-      errEl.style.display = "none";
-      document.getElementById('loginOverlay').style.display = "none";
-      document.getElementById('mainApp').style.display = "flex";
-      
-      // Auto-restore saved entries table from local browser storage
-      loadCachedEntries();
-      initAppDB();
-    } else {
-      errEl.style.display = "block";
-    }
-  }
+  // Initialize application directly on page load
+  window.addEventListener('DOMContentLoaded', () => {
+    loadCachedEntries();
+    initAppDB();
+  });
 
   function loadCachedEntries() {
     try {
