@@ -76,6 +76,19 @@
       color: var(--primary);
       margin-top: 2px;
     }
+
+    /* Modal Overlay Styling */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex; justify-content: center; align-items: center;
+      z-index: 1000;
+    }
+    .modal-card {
+      background: white; padding: 24px; border-radius: 12px;
+      width: 100%; max-width: 450px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
   </style>
 </head>
 <body>
@@ -91,8 +104,7 @@
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="importMasterCSV(event)" />
         <button class="btn btn-outline" onclick="document.getElementById('csvFileInput').click()">📁 Load Master CSV</button>
-        <button class="btn btn-outline" onclick="toggleAddModal()">+ Add New Master Acc</button>
-        <button class="btn btn-outline" onclick="exportMasterCSV()">💾 Export Master CSV</button>
+        <button class="btn btn-outline" onclick="toggleAddModal(true)">+ Add New Master Acc</button>
         <button class="btn btn-success" onclick="downloadEntriesCSV()">⬇ Download CSV (<span id="savedCount">0</span>)</button>
       </div>
     </header>
@@ -113,7 +125,6 @@
           id="accSearchInput" 
           placeholder="Type digits or full account number..." 
           oninput="searchAccount()" 
-          onkeydown="handleSearchKeyDown(event)"
           autofocus 
         />
       </div>
@@ -125,7 +136,7 @@
       </div>
     </div>
 
-    <!-- Step 2: Transaction Type, Details & Amount -->
+    <!-- Step 2: Transaction Type & Amount -->
     <div class="step-box" id="step2Box" style="display: none;">
       <div style="margin-bottom: 14px; padding: 12px; background: #ffffff; border: 1px solid var(--border); border-radius: 8px;">
         <h4 style="margin-bottom: 6px; color: var(--primary);">Selected Account Details</h4>
@@ -135,8 +146,8 @@
       </div>
 
       <div class="input-group">
-        <label for="txTypeSelect">STEP 3: Transaction Type</label>
-        <select id="txTypeSelect" onkeydown="handleStep2KeyDown(event)">
+        <label for="txTypeSelect">STEP 2: Transaction Type</label>
+        <select id="txTypeSelect">
           <option value="NFT" selected>NFT</option>
           <option value="IMF">IMF</option>
           <option value="PMT">PMT</option>
@@ -145,7 +156,7 @@
       </div>
       <div class="input-group">
         <label for="amountInput">Enter Amount (₹) [Must be below ₹1,00,000]</label>
-        <input type="number" step="any" id="amountInput" placeholder="Enter Amount" onkeydown="handleStep2KeyDown(event)" />
+        <input type="number" step="any" id="amountInput" placeholder="Enter Amount" />
       </div>
       <div style="display: flex; gap: 8px;">
         <button class="btn btn-success" style="flex: 1;" onclick="saveCurrentEntry()">Save & Next &rarr;</button>
@@ -183,6 +194,29 @@
   </div>
 </div>
 
+<!-- Modal Dialog for Adding New Master Account -->
+<div id="addModal" class="modal-overlay" style="display: none;">
+  <div class="modal-card">
+    <h3 style="margin-bottom: 16px; color: var(--primary);">Add New Master Account</h3>
+    <div class="input-group">
+      <label for="newAccName">Account Holder / Party Name</label>
+      <input type="text" id="newAccName" placeholder="Enter Party Name" />
+    </div>
+    <div class="input-group">
+      <label for="newAccNum">Credit Account Number</label>
+      <input type="text" id="newAccNum" placeholder="Enter Account Number" />
+    </div>
+    <div class="input-group">
+      <label for="newAccIfsc">IFSC Code</label>
+      <input type="text" id="newAccIfsc" placeholder="Enter IFSC Code" style="text-transform: uppercase;" />
+    </div>
+    <div style="display: flex; gap: 8px; margin-top: 16px;">
+      <button class="btn btn-success" style="flex: 1;" onclick="saveSingleMasterAccount()">Add Account</button>
+      <button class="btn btn-outline" onclick="toggleAddModal(false)">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firebase Modular SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -190,17 +224,15 @@
     getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, query, orderBy, writeBatch, getDocs 
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // REPLACE THIS WITH YOUR FIREBASE CONFIG FROM PROJECT SETTINGS
- // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyCl6AWHiSV6A3E9Hr4CqmjN6ErT1Q7Z55U",
-  authDomain: "mlpl-entries-app.firebaseapp.com",
-  projectId: "mlpl-entries-app",
-  storageBucket: "mlpl-entries-app.firebasestorage.app",
-  messagingSenderId: "1012932810596",
-  appId: "1:1012932810596:web:2c888829cd7434abd80c71",
-  measurementId: "G-LLCCM3756R"
-};
+  const firebaseConfig = {
+    apiKey: "AIzaSyCl6AWHiSV6A3E9Hr4CqmjN6ErT1Q7Z55U",
+    authDomain: "mlpl-entries-app.firebaseapp.com",
+    projectId: "mlpl-entries-app",
+    storageBucket: "mlpl-entries-app.firebasestorage.app",
+    messagingSenderId: "1012932810596",
+    appId: "1:1012932810596:web:2c888829cd7434abd80c71",
+    measurementId: "G-LLCCM3756R"
+  };
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
@@ -216,14 +248,12 @@ const firebaseConfig = {
   let selectedAccount = null;
   let savedEntries = [];
   let editingDocId = null;
-  let selectedMatchIndex = -1;
 
   window.addEventListener('DOMContentLoaded', () => {
     initAppDB();
     listenToFirebaseEntries();
   });
 
-  // Real-time synchronization across all devices and browsers
   function listenToFirebaseEntries() {
     const q = query(entriesCol, orderBy("timestamp", "asc"));
     onSnapshot(q, (snapshot) => {
@@ -252,6 +282,7 @@ const firebaseConfig = {
   }
 
   function checkAndAutoLoadMasterData() {
+    if (!indexedDb) return;
     const tx = indexedDb.transaction("accounts", "readonly");
     const store = tx.objectStore("accounts");
     const countReq = store.count();
@@ -264,35 +295,103 @@ const firebaseConfig = {
           document.getElementById('masterCountBadge').innerText = `${masterAccounts.length} Master Accounts Loaded`;
         };
       } else {
-        fetch('./master_accounts.csv')
-          .then(res => res.text())
+        fetch('master_accounts.csv')
+          .then(res => {
+            if (!res.ok) throw new Error("CSV file not found");
+            return res.text();
+          })
           .then(csvText => parseAndStoreCSVText(csvText))
           .catch(() => {
-            document.getElementById('masterCountBadge').innerText = "0 Master Accounts Loaded";
+            document.getElementById('masterCountBadge').innerText = "0 Master Accounts (Click 'Load Master CSV')";
           });
       }
     };
   }
 
+  // Toggle Add Master Account Modal
+  window.toggleAddModal = function(show) {
+    document.getElementById('addModal').style.display = show ? 'flex' : 'none';
+    if (show) {
+      document.getElementById('newAccName').value = '';
+      document.getElementById('newAccNum').value = '';
+      document.getElementById('newAccIfsc').value = '';
+      document.getElementById('newAccName').focus();
+    }
+  };
+
+  // Add Single Master Account Function
+  window.saveSingleMasterAccount = function() {
+    const name = document.getElementById('newAccName').value.trim();
+    const acc = document.getElementById('newAccNum').value.trim();
+    const ifsc = document.getElementById('newAccIfsc').value.trim().toUpperCase();
+
+    if (!name || !acc || !ifsc) {
+      alert('Please fill in all 3 fields (Name, Account Number, IFSC Code).');
+      return;
+    }
+
+    const newRecord = { name, acc, ifsc };
+    const tx = indexedDb.transaction("accounts", "readwrite");
+    const store = tx.objectStore("accounts");
+    
+    store.add(newRecord);
+    tx.oncomplete = function() {
+      masterAccounts.push(newRecord);
+      document.getElementById('masterCountBadge').innerText = `${masterAccounts.length} Master Accounts Loaded`;
+      toggleAddModal(false);
+      alert('New Master Account added successfully!');
+    };
+  };
+
+  window.importMasterCSV = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const csvText = e.target.result;
+      parseAndStoreCSVText(csvText);
+      alert('Master accounts updated successfully!');
+      event.target.value = '';
+    };
+    reader.readAsText(file);
+  };
+
   function parseAndStoreCSVText(text) {
     const rows = text.split(/\r?\n/);
     const parsed = [];
+
     for (let i = 0; i < rows.length; i++) {
-      const cols = rows[i].split(',').map(c => c.replace(/["'\t\r]/g, '').trim());
-      if (cols.length >= 3 && cols[1] && cols[2] && !cols[1].toLowerCase().includes('account')) {
-        parsed.push({ name: cols[0], acc: cols[1], ifsc: cols[2] });
+      const line = rows[i].trim();
+      if (!line) continue;
+
+      const cols = line.split(',').map(c => c.replace(/["'\t\r]/g, '').trim());
+
+      if (cols.length >= 3 && cols[1] && cols[2]) {
+        if (cols[1].toLowerCase().includes('account') || cols[0].toLowerCase().includes('name')) continue;
+
+        parsed.push({
+          name: cols[0],
+          acc: cols[1],
+          ifsc: cols[2]
+        });
       }
     }
 
     if (parsed.length > 0) {
       const tx = indexedDb.transaction("accounts", "readwrite");
       const store = tx.objectStore("accounts");
-      store.clear();
-      parsed.forEach(item => store.add(item));
+
+      store.clear().onsuccess = () => {
+        parsed.forEach(item => store.add(item));
+      };
+
       tx.oncomplete = function() {
         masterAccounts = parsed;
         document.getElementById('masterCountBadge').innerText = `${parsed.length} Master Accounts Loaded`;
       };
+    } else {
+      alert("No valid rows found in CSV. Verification format: Name, Account Number, IFSC Code.");
     }
   }
 
@@ -305,7 +404,6 @@ const firebaseConfig = {
     matchList.innerHTML = '';
     selectedAccount = null;
     currentMatches = [];
-    selectedMatchIndex = -1;
 
     if (cleanVal.length < 2) {
       matchContainer.style.display = 'none';
@@ -338,14 +436,10 @@ const firebaseConfig = {
         }
 
         div.innerHTML = `<div><strong>${item.name}</strong><br><span class="mono">${highlightedAcc}</span> | <span class="mono">${item.ifsc}</span></div>`;
-        div.onclick = () => {
-          selectedMatchIndex = idx;
-          selectAccount(item, div);
-        };
+        div.onclick = () => selectAccount(item, div);
         matchList.appendChild(div);
 
         if (cleanVal === String(item.acc) || (currentMatches.length === 1 && idx === 0)) {
-          selectedMatchIndex = 0;
           selectAccount(item, div);
         }
       });
@@ -390,7 +484,7 @@ const firebaseConfig = {
     }
 
     if (numAmt >= 100000) {
-      alert('Amount exceeds the limit! Every payment must and should be below ₹1,00,000 only.');
+      alert('Amount exceeds limit! Payment must be below ₹1,00,000.');
       return;
     }
 
@@ -452,7 +546,6 @@ const firebaseConfig = {
     selectedAccount = null;
     currentMatches = [];
     editingDocId = null;
-    selectedMatchIndex = -1;
     document.getElementById('accSearchInput').value = '';
     document.getElementById('matchContainer').style.display = 'none';
     document.getElementById('step2Box').style.display = 'none';
