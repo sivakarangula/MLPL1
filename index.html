@@ -99,11 +99,12 @@
       <div>
         <h1>MATHRUSRI LOGISTICS PVT LTD</h1>
         <div class="sub-heading">BANK PAYMENT SYSTEM</div>
-        <span class="badge" id="masterCountBadge">0 Master Accounts Loaded</span>
+        <span class="badge" id="masterCountBadge">Loading Firebase Master Data...</span>
       </div>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="importMasterCSV(event)" />
-        <button class="btn btn-outline" onclick="document.getElementById('csvFileInput').click()">📁 Load Master CSV</button>
+        <button class="btn btn-outline" onclick="document.getElementById('csvFileInput').click()">📁 Sync CSV to Firebase</button>
+        <button class="btn btn-outline" onclick="downloadMasterCSV()">⬇ Export Master CSV</button>
         <button class="btn btn-outline" onclick="toggleAddModal(true)">+ Add New Master Acc</button>
         <button class="btn btn-success" onclick="downloadEntriesCSV()">⬇ Download CSV (<span id="savedCount">0</span>)</button>
       </div>
@@ -211,7 +212,7 @@
       <input type="text" id="newAccIfsc" placeholder="Enter IFSC Code" style="text-transform: uppercase;" />
     </div>
     <div style="display: flex; gap: 8px; margin-top: 16px;">
-      <button class="btn btn-success" style="flex: 1;" onclick="saveSingleMasterAccount()">Add Account</button>
+      <button class="btn btn-success" id="btnSaveMaster" style="flex: 1;" onclick="saveSingleMasterAccount()">Save to Firebase Cloud</button>
       <button class="btn btn-outline" onclick="toggleAddModal(false)">Cancel</button>
     </div>
   </div>
@@ -237,12 +238,12 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const entriesCol = collection(db, "savedEntries");
+  const masterAccountsCol = collection(db, "masterAccounts");
 
   const DEBIT_ACCOUNT = "4242002100012161";
   const DEFAULT_CURRENCY = "INR";
   const DEFAULT_PARTICULARS = "MLPL";
 
-  let indexedDb;
   let masterAccounts = [];
   let currentMatches = [];
   let selectedAccount = null;
@@ -250,10 +251,11 @@
   let editingDocId = null;
 
   window.addEventListener('DOMContentLoaded', () => {
-    initAppDB();
     listenToFirebaseEntries();
+    listenToFirebaseMasterAccounts();
   });
 
+  // Real-time listener for Payment Entries
   function listenToFirebaseEntries() {
     const q = query(entriesCol, orderBy("timestamp", "asc"));
     onSnapshot(q, (snapshot) => {
@@ -263,52 +265,19 @@
       }));
       renderSavedEntries();
     }, (error) => {
-      console.error("Firestore sync error:", error);
+      console.error("Firestore payment sync error:", error);
     });
   }
 
-  function initAppDB() {
-    const dbReq = indexedDB.open("MLPL_DB", 1);
-    dbReq.onupgradeneeded = function(e) {
-      indexedDb = e.target.result;
-      if (!indexedDb.objectStoreNames.contains("accounts")) {
-        indexedDb.createObjectStore("accounts", { keyPath: "id", autoIncrement: true });
-      }
-    };
-    dbReq.onsuccess = function(e) {
-      indexedDb = e.target.result;
-      checkAndAutoLoadMasterData();
-    };
+  // Real-time listener for Master Accounts on Cloud Server
+  function listenToFirebaseMasterAccounts() {
+    onSnapshot(masterAccountsCol, (snapshot) => {
+      masterAccounts = snapshot.docs.map(docSnap => docSnap.data());
+      document.getElementById('masterCountBadge').innerText = `${masterAccounts.length} Master Accounts Loaded (Firebase)`;
+    });
   }
 
-  function checkAndAutoLoadMasterData() {
-    if (!indexedDb) return;
-    const tx = indexedDb.transaction("accounts", "readonly");
-    const store = tx.objectStore("accounts");
-    const countReq = store.count();
-
-    countReq.onsuccess = function() {
-      if (countReq.result > 0) {
-        const getAllReq = store.getAll();
-        getAllReq.onsuccess = function() {
-          masterAccounts = getAllReq.result;
-          document.getElementById('masterCountBadge').innerText = `${masterAccounts.length} Master Accounts Loaded`;
-        };
-      } else {
-        fetch('master_accounts.csv')
-          .then(res => {
-            if (!res.ok) throw new Error("CSV file not found");
-            return res.text();
-          })
-          .then(csvText => parseAndStoreCSVText(csvText))
-          .catch(() => {
-            document.getElementById('masterCountBadge').innerText = "0 Master Accounts (Click 'Load Master CSV')";
-          });
-      }
-    };
-  }
-
-  // Toggle Add Master Account Modal
+  // Toggle Modal Dialog
   window.toggleAddModal = function(show) {
     document.getElementById('addModal').style.display = show ? 'flex' : 'none';
     if (show) {
@@ -319,81 +288,100 @@
     }
   };
 
-  // Add Single Master Account Function
-  window.saveSingleMasterAccount = function() {
+  // Add single master account to Firebase
+  window.saveSingleMasterAccount = async function() {
     const name = document.getElementById('newAccName').value.trim();
     const acc = document.getElementById('newAccNum').value.trim();
     const ifsc = document.getElementById('newAccIfsc').value.trim().toUpperCase();
 
     if (!name || !acc || !ifsc) {
-      alert('Please fill in all 3 fields (Name, Account Number, IFSC Code).');
+      alert('Please fill in all 3 fields.');
       return;
     }
 
-    const newRecord = { name, acc, ifsc };
-    const tx = indexedDb.transaction("accounts", "readwrite");
-    const store = tx.objectStore("accounts");
-    
-    store.add(newRecord);
-    tx.oncomplete = function() {
-      masterAccounts.push(newRecord);
-      document.getElementById('masterCountBadge').innerText = `${masterAccounts.length} Master Accounts Loaded`;
+    const btn = document.getElementById('btnSaveMaster');
+    btn.disabled = true;
+    btn.innerText = "Saving...";
+
+    try {
+      await addDoc(masterAccountsCol, { name, acc, ifsc, addedAt: Date.now() });
       toggleAddModal(false);
-      alert('New Master Account added successfully!');
-    };
+      alert('Account saved! All users can now search for this account.');
+    } catch (err) {
+      console.error("Firebase Add Error:", err);
+      alert('Could not save to Firebase Cloud.');
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "Save to Firebase Cloud";
+    }
   };
 
+  // Upload local CSV to Firebase Cloud database
   window.importMasterCSV = function(event) {
     const file = event.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = function(e) {
-      const csvText = e.target.result;
-      parseAndStoreCSVText(csvText);
-      alert('Master accounts updated successfully!');
+      uploadCSVToFirebase(e.target.result);
       event.target.value = '';
     };
     reader.readAsText(file);
   };
 
-  function parseAndStoreCSVText(text) {
+  async function uploadCSVToFirebase(text) {
     const rows = text.split(/\r?\n/);
     const parsed = [];
 
     for (let i = 0; i < rows.length; i++) {
       const line = rows[i].trim();
       if (!line) continue;
-
       const cols = line.split(',').map(c => c.replace(/["'\t\r]/g, '').trim());
 
       if (cols.length >= 3 && cols[1] && cols[2]) {
         if (cols[1].toLowerCase().includes('account') || cols[0].toLowerCase().includes('name')) continue;
-
-        parsed.push({
-          name: cols[0],
-          acc: cols[1],
-          ifsc: cols[2]
-        });
+        parsed.push({ name: cols[0], acc: cols[1], ifsc: cols[2] });
       }
     }
 
     if (parsed.length > 0) {
-      const tx = indexedDb.transaction("accounts", "readwrite");
-      const store = tx.objectStore("accounts");
-
-      store.clear().onsuccess = () => {
-        parsed.forEach(item => store.add(item));
-      };
-
-      tx.oncomplete = function() {
-        masterAccounts = parsed;
-        document.getElementById('masterCountBadge').innerText = `${parsed.length} Master Accounts Loaded`;
-      };
-    } else {
-      alert("No valid rows found in CSV. Verification format: Name, Account Number, IFSC Code.");
+      document.getElementById('masterCountBadge').innerText = "Uploading CSV to Firebase Cloud...";
+      
+      const batchSize = 450;
+      for (let i = 0; i < parsed.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = parsed.slice(i, i + batchSize);
+        chunk.forEach(item => {
+          const docRef = doc(masterAccountsCol);
+          batch.set(docRef, item);
+        });
+        await batch.commit();
+      }
+      alert('CSV accounts successfully synced to Firebase Cloud!');
     }
   }
+
+  // Export full Master List from Firebase to CSV
+  window.downloadMasterCSV = function() {
+    if (masterAccounts.length === 0) {
+      alert('No master accounts available to export.');
+      return;
+    }
+
+    let csv = "Name,Account Number,IFSC Code\n";
+    masterAccounts.forEach(acc => {
+      const cleanName = `"${(acc.name || '').replace(/"/g, '""')}"`;
+      csv += `${cleanName},${acc.acc},${acc.ifsc}\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `master_accounts_${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   window.searchAccount = function() {
     const rawVal = document.getElementById('accSearchInput').value.trim();
