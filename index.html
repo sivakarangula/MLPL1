@@ -323,7 +323,7 @@
     };
   }
 
-  function parseAndStoreCSVText(text) {
+  function parseAndStoreCSVText(text, callback) {
     const rows = text.split(/\r?\n/);
     const parsed = [];
     for (let i = 0; i < rows.length; i++) {
@@ -342,10 +342,12 @@
         masterAccounts = parsed;
         document.getElementById('masterCountBadge').innerText = `${parsed.length} Master Accounts Loaded`;
         document.getElementById('accSearchInput').focus();
+        if (callback) callback(parsed.length);
       };
     } else {
       document.getElementById('masterCountBadge').innerText = "0 Master Accounts Loaded";
       document.getElementById('accSearchInput').focus();
+      if (callback) callback(0);
     }
   }
 
@@ -734,8 +736,9 @@
 
     const reader = new FileReader();
     reader.onload = function(e) {
-      parseAndStoreCSVText(e.target.result);
-      alert('Master accounts list updated and stored permanently!');
+      parseAndStoreCSVText(e.target.result, function(count) {
+        alert(`Successfully stored ${count} accounts in browser database permanently!`);
+      });
     };
     reader.readAsText(file);
   }
